@@ -11,7 +11,7 @@ import numpy as np
 import tkinter as tk
 from tkinter import simpledialog, messagebox, ttk
 import threading
-import os  # Para manejar directorios y archivos
+import os  
 
 #%% Funciones
 def obtener_nombre_archivo():
@@ -45,8 +45,13 @@ def medir_intensidad(ser):
         except ValueError:
             print(f"Error al convertir datos: {linea}")
             return None
+#%% Funciones adicionales
+def guardar_grafico(ruta_archivo):
+    """Guarda el gráfico actual en un archivo .png con el mismo nombre que el archivo .txt."""
+    nombre_grafico = os.path.splitext(ruta_archivo)[0] + ".png"  # Cambia la extensión a .png
+    fig.savefig(nombre_grafico, dpi=300)  # Guarda el gráfico con DPI 300
+    print(f"Gráfico guardado en {nombre_grafico}")
 
-#%% realizar_mediciones
 #%% realizar_mediciones
 def realizar_mediciones(ser, duracion, archivo, tiempos, intensidades, grafico_activo):
     """Realiza mediciones durante el tiempo especificado y almacena los datos en un archivo."""
@@ -72,9 +77,11 @@ def realizar_mediciones(ser, duracion, archivo, tiempos, intensidades, grafico_a
     
     if duracion is not None and time.time() - inicio >= duracion:
         messagebox.showinfo("Medición completada", "La medición ha concluido correctamente.")
+        guardar_grafico(archivo.name)  # Guarda el gráfico antes de limpiar
         grafico_activo.clear()  # Desactiva el evento para detener la medición
         tiempos.clear()  # Limpia las listas para una nueva medición
         intensidades.clear()
+
 
 #%% Iniciar medicion
 def iniciar_medicion():
@@ -107,11 +114,11 @@ def cancelar_medicion():
     global grafico_activo
 
     if grafico_activo.is_set():
+        guardar_grafico(os.path.join(crear_subdirectorio(), obtener_nombre_archivo()))  # Guarda el gráfico antes de limpiar
         grafico_activo.clear()
         messagebox.showinfo("Información", "Medición cancelada.")
     else:
         messagebox.showwarning("Advertencia", "No hay una medición en curso.")
-
 #%% Act grafico
 def actualizar_grafico():
     """Actualiza el gráfico en tiempo real."""
@@ -201,4 +208,3 @@ root.mainloop()
 if 'ser' in locals() and ser.is_open:
     ser.close()
     print("Conexión cerrada.")
-# %%
