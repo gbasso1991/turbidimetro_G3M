@@ -13,12 +13,7 @@ from tkinter import messagebox
 import threading
 import os  
 
-#%% Funciones
-def obtener_nombre_archivo():
-    """Genera un nombre de archivo basado en la fecha y hora actual."""
-    fecha_hora = datetime.now().strftime("%y%m%d_%H%M%S")  # Formato aammdd_hhmmss
-    return f"mediciones_{fecha_hora}.txt"
-
+#%% guardar_resultados
 def guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias):
     '''Guarda tabla en .txt y gráfico Abs_vs_t en .png en el subdirectorio especificado.'''
     fecha_nombre = datetime.now().strftime("%y%m%d_%H%M%S")  # Formato aammdd_hhmmss
@@ -35,7 +30,7 @@ def guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias):
     nombre_grafico = os.path.join(ruta_subdirectorio, f"grafico_{fecha_nombre}.png")
     fig.savefig(nombre_grafico, dpi=300)  # Guarda el gráfico con DPI 300
     print(f"Gráfico guardado en {nombre_grafico}")
-
+#%% medir_intensidad c/Arduino
 def medir_intensidad(ser):
     """Envía el comando 'medir' a Arduino y devuelve la intensidad recibida."""
     ser.write("medir\n".encode())  # Enviar comando a Arduino
@@ -50,7 +45,7 @@ def medir_intensidad(ser):
         except ValueError:
             print(f"Error al convertir datos: {linea}")
             return None
-
+#%% realizar_mediciones 
 def realizar_mediciones(ser, duracion, ruta_subdirectorio, tiempos, intensidades, absorbancias, grafico_activo):
     """Realiza mediciones durante el tiempo especificado y almacena los datos en un archivo."""
     inicio = time.time()
@@ -58,15 +53,15 @@ def realizar_mediciones(ser, duracion, ruta_subdirectorio, tiempos, intensidades
     while grafico_activo.is_set() and (duracion is None or time.time() - inicio < duracion):
         tiempo_actual = round(time.time() - inicio, 2)  # Tiempo relativo en segundos
         intensidad = medir_intensidad(ser)              # Le pido la medida al Arduino
-        abs_rel = -np.log10(intensidad) if intensidad is not None else None  # Absorbancia relativa
-
+        # Absorbancia: el valor 3520 corresponde a la intensidad maxima registrada con la cubeta con agua
+        abs_rel = np.log10(3520/intensidad) if intensidad is not None else None  
         if intensidad is not None:
             tiempos.append(tiempo_actual)
             intensidades.append(intensidad)
             absorbancias.append(abs_rel)
             print(f"Tiempo: {tiempo_actual}s - Intensidad: {intensidad} - Absorbancia rel: {abs_rel}")
 
-        time.sleep(1)  # Ajusta el intervalo entre mediciones
+        time.sleep(0.88)  # Ajusta el intervalo entre mediciones
 
     print("Medición concluida.")
     
@@ -77,7 +72,7 @@ def realizar_mediciones(ser, duracion, ruta_subdirectorio, tiempos, intensidades
     tiempos.clear()  # Limpia las listas para una nueva medición
     intensidades.clear()
     absorbancias.clear()
-
+#%% iniciar_medicion
 def iniciar_medicion():
     """Inicia la medición en un hilo separado."""
     global ser, grafico_activo, hilo_medicion, ruta_subdirectorio
@@ -85,7 +80,6 @@ def iniciar_medicion():
     if grafico_activo.is_set():
         messagebox.showwarning("Advertencia", "Ya hay una medición en curso.")
         return
-
     try:
         duracion = float(entry_tiempo.get()) if entry_tiempo.get() else None
     except ValueError:
@@ -111,18 +105,19 @@ def iniciar_medicion():
     hilo_medicion.start()
 
     actualizar_grafico()
-
-def cancelar_medicion():
+#%% detener medicion
+def detener_medicion():
     """Cancela la medición en curso."""
     global grafico_activo, ruta_subdirectorio
 
     if grafico_activo.is_set():
-        guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias)  # Guardar resultados
+        #guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias)  # Guardar resultados
         grafico_activo.clear()
-        messagebox.showinfo("Información", "Medición cancelada.")
+        messagebox.showinfo("Información", "Medición detenida.")
+
     else:
         messagebox.showwarning("Advertencia", "No hay una medición en curso.")
-
+#%% Actualizar grafico
 def actualizar_grafico():
     """Actualiza el gráfico en tiempo real."""
     if grafico_activo.is_set():
@@ -167,7 +162,7 @@ baudrate = 9600
 
 #%% Iniciar la interfaz gráfica
 root = tk.Tk()
-root.title("Turbidímetro - G3M")
+root.title("G3M - Turbidímetro")
 
 # Variables globales
 tiempos = []
@@ -188,7 +183,7 @@ frame_controles.pack(side=tk.BOTTOM, fill=tk.X)
 btn_iniciar = tk.Button(frame_controles, text="Iniciar Medición", bg="green", command=iniciar_medicion)
 btn_iniciar.pack(side=tk.LEFT, padx=10, pady=10)
 
-btn_cancelar = tk.Button(frame_controles, text="Cancelar Medición", bg="red", command=cancelar_medicion)
+btn_cancelar = tk.Button(frame_controles, text="Detener Medición", bg="red", command=detener_medicion)
 btn_cancelar.pack(side=tk.LEFT, padx=10, pady=10)
 
 label_tiempo = tk.Label(frame_controles, text="Tiempo de medición (s):")
