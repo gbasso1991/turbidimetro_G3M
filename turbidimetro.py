@@ -54,7 +54,7 @@ def realizar_mediciones(ser, duracion, ruta_subdirectorio, tiempos, intensidades
         tiempo_actual = round(time.time() - inicio, 2)  # Tiempo relativo en segundos
         intensidad = medir_intensidad(ser)              # Le pido la medida al Arduino
         # Absorbancia: el valor 3520 corresponde a la intensidad maxima registrada con la cubeta con agua
-        abs_rel = np.log10(3520/intensidad) if intensidad is not None else None  
+        abs_rel = np.log10(intensidad) if intensidad is not None else None  
         if intensidad is not None:
             tiempos.append(tiempo_actual)
             intensidades.append(intensidad)
