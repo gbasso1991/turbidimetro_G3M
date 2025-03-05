@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 import tkinter as tk
-from tkinter import simpledialog, messagebox, ttk
+from tkinter import messagebox
 import threading
 import os  
 
@@ -19,74 +19,68 @@ def obtener_nombre_archivo():
     fecha_hora = datetime.now().strftime("%y%m%d_%H%M%S")  # Formato aammdd_hhmmss
     return f"mediciones_{fecha_hora}.txt"
 
-def crear_subdirectorio():
-    """Crea un subdirectorio con la nomenclatura aammdd_hhmmss y devuelve su ruta."""
-    nombre_subdirectorio = datetime.now().strftime("%y%m%d_%H%M%S")
-    ruta_subdirectorio = os.path.join(os.getcwd(), nombre_subdirectorio)
-    
-    if not os.path.exists(ruta_subdirectorio):
-        os.makedirs(ruta_subdirectorio)
-    
-    return ruta_subdirectorio
+def guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias):
+    '''Guarda tabla en .txt y gráfico Abs_vs_t en .png en el subdirectorio especificado.'''
+    fecha_nombre = datetime.now().strftime("%y%m%d_%H%M%S")  # Formato aammdd_hhmmss
+
+    # Guardar datos en .txt
+    nombre_archivo_txt = os.path.join(ruta_subdirectorio, f"mediciones_{fecha_nombre}.txt")
+    with open(nombre_archivo_txt, "w") as archivo:
+        archivo.write("Tiempo (s), Intensidad, Absorbancia\n")
+        for t, i, a in zip(tiempos, intensidades, absorbancias):
+            archivo.write(f"{t}, {i}, {a}\n")
+    print(f"Datos guardados en {nombre_archivo_txt}")
+
+    # Guardar gráfico en .png
+    nombre_grafico = os.path.join(ruta_subdirectorio, f"grafico_{fecha_nombre}.png")
+    fig.savefig(nombre_grafico, dpi=300)  # Guarda el gráfico con DPI 300
+    print(f"Gráfico guardado en {nombre_grafico}")
 
 def medir_intensidad(ser):
     """Envía el comando 'medir' a Arduino y devuelve la intensidad recibida."""
     ser.write("medir\n".encode())  # Enviar comando a Arduino
-    
     while True:
         linea = ser.readline().decode("utf-8").strip()
         
         if not linea:
             continue  # Ignora líneas vacías
-        
         try:
             intensidad = float(linea)
             return intensidad
         except ValueError:
             print(f"Error al convertir datos: {linea}")
             return None
-#%% Funciones adicionales
-def guardar_grafico(ruta_archivo):
-    """Guarda el gráfico actual en un archivo .png con el mismo nombre que el archivo .txt."""
-    nombre_grafico = os.path.splitext(ruta_archivo)[0] + ".png"  # Cambia la extensión a .png
-    fig.savefig(nombre_grafico, dpi=300)  # Guarda el gráfico con DPI 300
-    print(f"Gráfico guardado en {nombre_grafico}")
 
-#%% realizar_mediciones
-def realizar_mediciones(ser, duracion, archivo, tiempos, intensidades, grafico_activo):
+def realizar_mediciones(ser, duracion, ruta_subdirectorio, tiempos, intensidades, absorbancias, grafico_activo):
     """Realiza mediciones durante el tiempo especificado y almacena los datos en un archivo."""
     inicio = time.time()
 
-    with open(archivo, "w") as archivo:
-        archivo.write("Tiempo (s), Intensidad\n")
-        
-        while grafico_activo.is_set() and (duracion is None or time.time() - inicio < duracion):
-            tiempo_actual = round(time.time() - inicio, 2)  # Tiempo relativo en segundos
-            intensidad = medir_intensidad(ser)              # le pido la medida al Arduino
-            
-            if intensidad is not None:
-                archivo.write(f"{tiempo_actual}, {intensidad}\n")
-                archivo.flush()  # Asegura que los datos se escriban en el archivo inmediatamente
-                tiempos.append(tiempo_actual)
-                intensidades.append(intensidad)
-                print(f"Tiempo: {tiempo_actual}s - Intensidad: {intensidad}")
-            
-            time.sleep(1)  # Ajusta el intervalo entre mediciones
-    
-    print(f"Mediciones completadas. Datos guardados en {archivo}")
+    while grafico_activo.is_set() and (duracion is None or time.time() - inicio < duracion):
+        tiempo_actual = round(time.time() - inicio, 2)  # Tiempo relativo en segundos
+        intensidad = medir_intensidad(ser)              # Le pido la medida al Arduino
+        abs_rel = -np.log10(intensidad) if intensidad is not None else None  # Absorbancia relativa
+
+        if intensidad is not None:
+            tiempos.append(tiempo_actual)
+            intensidades.append(intensidad)
+            absorbancias.append(abs_rel)
+            print(f"Tiempo: {tiempo_actual}s - Intensidad: {intensidad} - Absorbancia rel: {abs_rel}")
+
+        time.sleep(1)  # Ajusta el intervalo entre mediciones
+
+    print("Medición concluida.")
     
     if duracion is not None and time.time() - inicio >= duracion:
         messagebox.showinfo("Medición completada", "La medición ha concluido correctamente.")
-        guardar_grafico(archivo.name)  # Guarda el gráfico antes de limpiar
-        grafico_activo.clear()  # Desactiva el evento para detener la medición
-        tiempos.clear()  # Limpia las listas para una nueva medición
-        intensidades.clear()
+    guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias)  # Guardar resultados
+    grafico_activo.clear()  # Desactiva el evento para detener la medición
+    tiempos.clear()  # Limpia las listas para una nueva medición
+    intensidades.clear()
+    absorbancias.clear()
 
-
-#%% Iniciar medicion
 def iniciar_medicion():
     """Inicia la medición en un hilo separado."""
-    global ser, grafico_activo, hilo_medicion
+    global ser, grafico_activo, hilo_medicion, ruta_subdirectorio
 
     if grafico_activo.is_set():
         messagebox.showwarning("Advertencia", "Ya hay una medición en curso.")
@@ -99,77 +93,88 @@ def iniciar_medicion():
         return
     
     grafico_activo.set()
-    ruta_subdirectorio = crear_subdirectorio()  # Crear subdirectorio
-    nombre_archivo = os.path.join(ruta_subdirectorio, obtener_nombre_archivo())  # Ruta completa del archivo
     tiempos.clear()
     intensidades.clear()
+    absorbancias.clear()
 
-    hilo_medicion = threading.Thread(target=realizar_mediciones, args=(ser, duracion, nombre_archivo, tiempos, intensidades, grafico_activo))
+    # Crear subdirectorio al inicio de la medición
+    fecha_nombre = datetime.now().strftime("%y%m%d_%H%M%S")  # Formato aammdd_hhmmss
+    ruta_subdirectorio = os.path.join(os.getcwd(), fecha_nombre)
+    if not os.path.exists(ruta_subdirectorio):
+        os.makedirs(ruta_subdirectorio)
+
+    # Pasar todos los argumentos necesarios a realizar_mediciones
+    hilo_medicion = threading.Thread(
+        target=realizar_mediciones,
+        args=(ser, duracion, ruta_subdirectorio, tiempos, intensidades, absorbancias, grafico_activo)
+    )
     hilo_medicion.start()
 
     actualizar_grafico()
-#%% Cancelar Medida
+
 def cancelar_medicion():
     """Cancela la medición en curso."""
-    global grafico_activo
+    global grafico_activo, ruta_subdirectorio
 
     if grafico_activo.is_set():
-        guardar_grafico(os.path.join(crear_subdirectorio(), obtener_nombre_archivo()))  # Guarda el gráfico antes de limpiar
+        guardar_resultados(ruta_subdirectorio, tiempos, intensidades, absorbancias)  # Guardar resultados
         grafico_activo.clear()
         messagebox.showinfo("Información", "Medición cancelada.")
     else:
         messagebox.showwarning("Advertencia", "No hay una medición en curso.")
-#%% Act grafico
+
 def actualizar_grafico():
     """Actualiza el gráfico en tiempo real."""
     if grafico_activo.is_set():
         ax.clear()
-        ax.plot(tiempos, intensidades, 'o-')
+        ax.plot(tiempos, absorbancias, 'o-')
         ax.grid()
         ax.set_xlabel("Tiempo (s)")
-        ax.set_ylabel("Intensidad")
-        ax.set_title("Medición de Turbidez en Tiempo Real")
+        ax.set_ylabel("Absorbancia (u.a.)")
+        ax.set_title("Turbidimetría")
         canvas.draw()
 
     if grafico_activo.is_set():
         root.after(1000, actualizar_grafico)  # Actualizar cada segundo
 
-#%% Conexión con Arduino
+#%% Deteccion de puerto y Conexión con Arduino
 puertos_disponibles = serial.tools.list_ports.comports()  # Listar los puertos seriales disponibles
 puerto_activo = None
-# Buscar el primer puerto USB activo (ttyUSB*)
+# Buscar el primer puerto USB activo (ttyUSB* o COM*)
 for puerto in puertos_disponibles:
     print(f"Puerto: {puerto.device}")
-    if "ttyUSB" in puerto.device:  # Verificar si el puerto es ttyUSB*
+    if "ttyUSB" in puerto.device or "COM" in puerto.device:  # Verificar si el puerto es ttyUSB* o COM*
         try:
             # Intenta abrir el puerto
             conexion = serial.Serial(puerto.device)
             conexion.close()  # Cierra la conexión
             print(f"Puerto activo: {puerto.device}")
             puerto_activo = puerto.device  # Guardar el nombre del puerto activo
-            break  # Salir del bucle después de encontrar el primer ttyUSB* activo
+            break  # Salir del bucle después de encontrar el primer puerto activo
         except (serial.SerialException, OSError):
             print(f"Puerto inactivo: {puerto.device}")
 
-# Verificar si se encontró un puerto USB activo
+# Verificar si se encontró un puerto activo
 if puerto_activo:
     print('-' * 40, '\n', f"Puerto seleccionado: {puerto_activo}")
 else:
-    print("No se encontraron puertos USB activos.")
+    print("No se encontraron puertos activos.")
     exit()
 
 #%% Configuración del puerto serie
 puerto = puerto_activo  # lo detecta automaticamente para que sea cross plataform 
-baudrate = 9600
+baudrate = 9600  
 
 #%% Iniciar la interfaz gráfica
 root = tk.Tk()
-root.title("Turbidímetro")
+root.title("Turbidímetro - G3M")
 
 # Variables globales
 tiempos = []
 intensidades = []
+absorbancias = []
 grafico_activo = threading.Event()
+ruta_subdirectorio = None  # Ruta del subdirectorio actual
 
 # Crear el gráfico
 fig, ax = plt.subplots()
