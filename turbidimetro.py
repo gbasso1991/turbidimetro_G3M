@@ -208,3 +208,4 @@ root.mainloop()
 if 'ser' in locals() and ser.is_open:
     ser.close()
     print("Conexión cerrada.")
+#####
